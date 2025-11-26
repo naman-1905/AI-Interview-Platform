@@ -4,6 +4,7 @@ and queuing them in Firestore.
 """
 
 import os
+from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import firebase_admin
@@ -43,34 +44,25 @@ def get_firestore_client() -> fb_firestore.Client:
 
 def _queue_status_from_global_stats(
     db: fb_firestore.Client, transaction: firestore.Transaction
-) -> Tuple[str, int]:
+) -> Tuple[str, int, str]:
     """
-    Determine queue status/number based on global_stats/queue document.
+    Determine placement based on live counts (no global_stats dependency).
 
     Rules:
-      - If session in {0,1,2} => status=ready, queue_number=0
-      - If session == 3 => status=pending, queue_number=waiting + 1 (waiting defaults to 0)
+      - If in_session has fewer than 3 docs, place user in in_session with queue_number 0.
+      - Else place user in queue with queue_number based on creation order (len(queue)+1).
+    Returns: (status, queue_number, target_collection)
     """
-    global_ref = db.collection("global_stats").document("queue")
-    snapshot = global_ref.get(transaction=transaction)
-    data = snapshot.to_dict() or {}
+    in_session_coll = db.collection("in_session")
+    queue_coll = db.collection("queue")
 
-    session_value = int(data.get("session", 0) or 0)
-    waiting = int(data.get("waiting", 0) or 0)
+    in_session_docs = list(in_session_coll.stream(transaction=transaction))
+    if len(in_session_docs) < 3:
+        return "in_session", 0, "in_session"
 
-    if session_value == 3:
-        status = "pending"
-        queue_number = waiting + 1
-    else:
-        status = "ready"
-        queue_number = 0
-
-    # Ensure the global_stats doc is updated/created with the latest waiting count
-    update_data = {"session": session_value}
-    update_data["waiting"] = queue_number if status == "pending" else max(waiting, 0)
-
-    transaction.set(global_ref, update_data, merge=True)
-    return status, queue_number
+    queue_docs = list(queue_coll.order_by("created_at").stream(transaction=transaction))
+    queue_number = len(queue_docs) + 1
+    return "pending", queue_number, "queue"
 
 
 @router.post("/", response_model=UserCreateResponse)
@@ -109,39 +101,46 @@ async def create_user(
     transaction = db.transaction()
 
     @firestore.transactional
-    def _write_user(txn: firestore.Transaction) -> Tuple[str, int]:
-        status, queue_number = _queue_status_from_global_stats(db, txn)
+    def _write_user(txn: firestore.Transaction) -> Tuple[str, int, str]:
+        status, queue_number, target_collection = _queue_status_from_global_stats(db, txn)
 
         user_ref = db.collection("users").document(user_id)
-        queue_ref = db.collection("queue").document(user_id)
-
-        user_doc = build_user_document(base_payload, status, queue_number)
-        queue_doc = {
-            "user_id": user_id,
-            "status": status,
-            "queue_number": queue_number,
-        }
+        user_doc = build_user_document(base_payload)
 
         txn.set(
             user_ref,
             {**user_doc, "created_at": fb_firestore.SERVER_TIMESTAMP},
             merge=True,
         )
-        txn.set(
-            queue_ref,
-            {**queue_doc, "created_at": fb_firestore.SERVER_TIMESTAMP},
-            merge=True,
-        )
 
-        return status, queue_number
+        # Place user either in in_session or queue collection
+        target_ref = db.collection(target_collection).document(user_id)
+        target_payload = {
+            "user_id": user_id,
+            "status": status,
+            "queue_number": queue_number,
+            "created_at": fb_firestore.SERVER_TIMESTAMP,
+        }
+
+        if status == "in_session":
+            now = datetime.utcnow()
+            target_payload["start_time"] = now
+            target_payload["expiry_time"] = now + timedelta(minutes=5)
+
+        txn.set(target_ref, target_payload, merge=True)
+
+        return status, queue_number, target_collection
 
     try:
-        status, queue_number = _write_user(transaction)
+        status, queue_number, target_collection = _write_user(transaction)
     except Exception as exc:
         logger.error(f"Failed to create user {user_id}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to persist user data") from exc
 
-    message = "User created and ready" if status == "ready" else "User queued"
+    if status == "in_session":
+        message = "User added to in_session"
+    else:
+        message = "User queued"
     return UserCreateResponse(
         user_id=user_id,
         status=status,
