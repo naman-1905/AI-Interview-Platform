@@ -4,116 +4,220 @@ import { Users, Clock, CheckCircle, AlertCircle } from "lucide-react";
 
 const api = import.meta.env.VITE_API_ENDPOINT;
 
-const STATUS_UI = {
-  checking: { icon: Users, color: "blue", text: "Checking availability..." },
-  joining: { icon: Clock, color: "blue", text: "Joining the queue..." },
-  waiting: { icon: Clock, color: "yellow", text: "Waiting for your turn..." },
-  ready: { icon: CheckCircle, color: "green", text: "Preparing session..." },
-  in_session: { icon: CheckCircle, color: "green", text: "Redirecting..." },
-  idle: { icon: Clock, color: "blue", text: "Retrying..." },
-  error: { icon: AlertCircle, color: "red", text: "Connection error" },
+const STATUS_CONFIG = {
+  checking: { icon: Users, bgColor: "bg-blue-100", textColor: "text-blue-600", text: "Checking availability..." },
+  joining: { icon: Clock, bgColor: "bg-blue-100", textColor: "text-blue-600", text: "Joining the queue..." },
+  waiting: { icon: Clock, bgColor: "bg-yellow-100", textColor: "text-yellow-600", text: "Waiting for your turn..." },
+  ready: { icon: CheckCircle, bgColor: "bg-green-100", textColor: "text-green-600", text: "Preparing your session..." },
+  in_session: { icon: CheckCircle, bgColor: "bg-green-100", textColor: "text-green-600", text: "Session ready! Redirecting..." },
+  error: { icon: AlertCircle, bgColor: "bg-red-100", textColor: "text-red-600", text: "Connection error" },
 };
 
 const Loader = () => (
-  <div className="min-h-screen flex items-center justify-center">
-    <div className="animate-pulse text-lg text-gray-500">Loading...</div>
+  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+      <div className="text-lg text-gray-600">Loading...</div>
+    </div>
   </div>
 );
+
+const StatusCard = ({ ui, status, queueNumber, error, retryCount, onRetry }) => {
+  const Icon = ui.icon;
+  
+  return (
+    <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md w-full">
+      <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center ${ui.bgColor} transition-all`}>
+        <Icon className={`w-10 h-10 ${ui.textColor}`} />
+      </div>
+
+      <h1 className="mt-6 text-2xl font-bold text-gray-800 capitalize">
+        {status.replace(/_/g, " ")}
+      </h1>
+      <p className="text-gray-500 mt-2 text-sm">{ui.text}</p>
+
+      {queueNumber !== null && queueNumber > 0 && status === "waiting" && (
+        <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+          <p className="text-xs text-gray-600 mb-1 uppercase">Your Position</p>
+          <p className="text-4xl font-bold text-yellow-600">#{queueNumber}</p>
+        </div>
+      )}
+
+      {queueNumber === 0 && status === "waiting" && (
+        <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
+          <p className="text-sm font-medium text-green-700">You're next in line!</p>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="mt-6 space-y-4">
+          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+          <button
+            className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            onClick={onRetry}
+          >
+            Retry Connection {retryCount > 0 && `(Attempt ${retryCount + 1})`}
+          </button>
+        </div>
+      )}
+
+      {status === "waiting" && (
+        <div className="mt-6 pt-6 border-t border-gray-100 flex items-center justify-center gap-2 text-gray-400">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <span className="text-xs">Checking status every 5 seconds</span>
+        </div>
+      )}
+
+      {status === "in_session" && (
+        <div className="mt-6 w-8 h-8 mx-auto border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+      )}
+    </div>
+  );
+};
 
 export default function WaitingArea() {
   const navigate = useNavigate();
   const userId = localStorage.getItem("user_id");
   const [status, setStatus] = useState("checking");
-  const [queue, setQueue] = useState(null);
+  const [queueNumber, setQueueNumber] = useState(null);
   const [error, setError] = useState("");
-  const poller = useRef(null);
+  const [retryCount, setRetryCount] = useState(0);
+  
+  const pollerRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const isRedirectingRef = useRef(false);
+  const consecutiveErrorsRef = useRef(0);
+  const MAX_ERRORS = 3;
 
   useEffect(() => {
-    if (!userId) return fail("User not found. Restart application.");
-    setTimeout(() => joinQueue(), 800);
-    return () => clearInterval(poller.current);
-  }, []);
+    isMountedRef.current = true;
+    if (!userId) {
+      setStatus("error");
+      setError("User ID not found. Please restart the application.");
+      return;
+    }
+    
+    const timer = setTimeout(() => joinQueue(), 800);
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(pollerRef.current);
+      clearTimeout(timer);
+    };
+  }, [userId]);
 
-  const fail = (msg) => {
-    setStatus("error");
-    setError(msg);
+  const updateState = (data) => {
+    if (!isMountedRef.current) return;
+    setStatus(data.status);
+    setQueueNumber(data.queue_number);
+    try {
+      localStorage.setItem("session_status", data.status);
+      localStorage.setItem("queue_number", String(data.queue_number));
+    } catch (err) {
+      console.error("localStorage error:", err);
+    }
+  };
+
+  const handleError = (message) => {
+    consecutiveErrorsRef.current++;
+    if (consecutiveErrorsRef.current >= MAX_ERRORS) {
+      clearInterval(pollerRef.current);
+      setStatus("error");
+      setError(message);
+    }
   };
 
   const joinQueue = async () => {
+    if (!isMountedRef.current) return;
     setStatus("joining");
+    setError("");
+    
     try {
-      const res = await fetch(`${api}/users/join`, {
+      const response = await fetch(`${api}/users/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId }),
       });
 
-      const data = await res.json();
-      if (!res.ok) return fail(data.message || "Unable to join queue");
-
+      if (!isMountedRef.current) return;
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.message || "Failed to join queue");
+      
       updateState(data);
-      if (["ready", "in_session"].includes(data.status)) return redirect();
-      startPolling();
-    } catch {
-      fail("Network error. Try again.");
+      if (data.status === "in_session") {
+        redirectToInterview();
+      } else {
+        startPolling();
+      }
+      consecutiveErrorsRef.current = 0;
+      setRetryCount(0);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setStatus("error");
+      setError(err.message || "Network error. Please check your connection.");
     }
   };
 
   const startPolling = () => {
-    poller.current = setInterval(async () => {
+    if (pollerRef.current) clearInterval(pollerRef.current);
+    consecutiveErrorsRef.current = 0;
+
+    pollerRef.current = setInterval(async () => {
+      if (!isMountedRef.current || isRedirectingRef.current) {
+        clearInterval(pollerRef.current);
+        return;
+      }
+
       try {
-        const res = await fetch(`${api}/status/${userId}`);
-        if (!res.ok) return;
-        const data = await res.json();
+        const response = await fetch(`${api}/status/${userId}`, {
+          method: "GET",
+          headers: { "Accept": "application/json" }
+        });
+        
+        if (!isMountedRef.current) return;
+        if (!response.ok) {
+          handleError("Lost connection to server. Please retry.");
+          return;
+        }
+        
+        const data = await response.json();
+        consecutiveErrorsRef.current = 0;
         updateState(data);
-        if (["ready", "in_session"].includes(data.status)) redirect();
-      } catch {}
+        
+        if (data.status === "in_session") {
+          clearInterval(pollerRef.current);
+          redirectToInterview();
+        }
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        handleError("Connection lost. Please check your network and retry.");
+      }
     }, 5000);
   };
 
-  const updateState = (data) => {
-    setQueue(data.queue_number);
-    setStatus(data.status);
-    localStorage.setItem("status", data.status);
-    localStorage.setItem("queue", data.queue_number);
+  const redirectToInterview = () => {
+    if (isRedirectingRef.current) return;
+    isRedirectingRef.current = true;
+    setStatus("in_session");
+    setTimeout(() => isMountedRef.current && navigate("/interview"), 1000);
   };
 
-  const redirect = () => {
-    clearInterval(poller.current);
-    setTimeout(() => navigate("/interview"), 1200);
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+    setStatus("checking");
+    setError("");
+    setTimeout(() => joinQueue(), 500);
   };
 
   if (status === "checking") return <Loader />;
 
-  const ui = STATUS_UI[status] || STATUS_UI.error;
-  const Icon = ui.icon;
+  const ui = STATUS_CONFIG[status] || STATUS_CONFIG.error;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md w-full">
-        <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center bg-${ui.color}-100`}>
-          <Icon className={`w-10 h-10 text-${ui.color}-600`} />
-        </div>
-
-        <h1 className="mt-4 text-xl font-bold capitalize">{status.replace("_", " ")}</h1>
-        <p className="text-gray-500 mt-1">{ui.text}</p>
-
-        {queue !== null && status === "waiting" && (
-          <p className="mt-4 text-lg font-semibold text-yellow-600">Queue: #{queue}</p>
-        )}
-
-        {status === "error" && (
-          <>
-            <p className="text-red-600 mt-4 text-sm">{error}</p>
-            <button
-              className="mt-4 bg-blue-600 text-white px-5 py-2 rounded-lg"
-              onClick={() => window.location.reload()}
-            >
-              Retry
-            </button>
-          </>
-        )}
-      </div>
+      <StatusCard ui={ui} status={status} queueNumber={queueNumber} error={error} retryCount={retryCount} onRetry={handleRetry} />
     </div>
   );
 }
