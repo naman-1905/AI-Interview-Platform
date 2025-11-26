@@ -24,7 +24,6 @@ COPY app/ ./app/
 COPY .env.sh .
 COPY start.sh .
 COPY creds.json .
-COPY creds_firestore.json .
 
 # Set file permissions
 RUN if [ -f .env.sh ]; then \
