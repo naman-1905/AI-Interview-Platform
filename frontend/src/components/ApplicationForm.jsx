@@ -136,7 +136,47 @@ const FileUpload = ({ file, setFile, disabled }) => (
   </div>
 );
 
-/* Skeleton Loader stays same */
 function SkeletonLoader() {
-  return <div className="animate-pulse text-center p-20">Loading...</div>;
+  return (
+    <Wrapper>
+      <div className="animate-pulse">
+        {/* Title skeleton */}
+        <div className="h-10 bg-gray-200 rounded-lg w-3/4 mx-auto mb-2"></div>
+        <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto mb-8"></div>
+
+        {/* First row - two columns */}
+        <div className="grid grid-cols-2 gap-5 mb-5">
+          <div>
+            <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+            <div className="h-12 bg-gray-200 rounded-lg"></div>
+          </div>
+          <div>
+            <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+            <div className="h-12 bg-gray-200 rounded-lg"></div>
+          </div>
+        </div>
+
+        {/* Email field */}
+        <div className="mb-5">
+          <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
+          <div className="h-12 bg-gray-200 rounded-lg"></div>
+        </div>
+
+        {/* Phone field */}
+        <div className="mb-5">
+          <div className="h-4 bg-gray-200 rounded w-28 mb-2"></div>
+          <div className="h-12 bg-gray-200 rounded-lg"></div>
+        </div>
+
+        {/* File upload */}
+        <div className="mb-5">
+          <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
+          <div className="h-32 bg-gray-200 rounded-lg"></div>
+        </div>
+
+        {/* Submit button */}
+        <div className="h-12 bg-gray-200 rounded-lg mt-6"></div>
+      </div>
+    </Wrapper>
+  );
 }
