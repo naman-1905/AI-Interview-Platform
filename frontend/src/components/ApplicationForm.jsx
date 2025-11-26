@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 export default function ApplicationForm() {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -99,6 +101,11 @@ export default function ApplicationForm() {
           resume: null
         });
         document.getElementById('resumeInput').value = '';
+        
+        // Navigate to /queue after successful submission
+        setTimeout(() => {
+          navigate('/queue');
+        }, 1000);
       } else {
         setMessage('Submission failed. Please try again.');
       }
