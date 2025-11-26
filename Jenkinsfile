@@ -2,7 +2,6 @@ pipeline {
     agent {
         node {
             label 'kahitoz-builder-node'
-            customWorkspace '/var/jenkins_home/workspace/AI-Interview-Platform'
         }
     }
 
@@ -31,7 +30,7 @@ pipeline {
         stage('Setup Credentials & Environment') {
             steps {
                 script {
-                    echo "📝 Setting up credentials and environment variables..."
+                    echo " Setting up credentials and environment variables..."
                     withCredentials([
                         file(credentialsId: 'gcp_json', variable: 'GCP_CREDS'),
                         file(credentialsId: 'firestore_json', variable: 'FIRESTORE_CREDS'),
@@ -63,7 +62,7 @@ pipeline {
                     sh """
                         cd backend
                         docker build -t ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG} .
-                        echo "✅ Docker image built successfully"
+                        echo " Docker image built successfully"
                     """
                 }
             }
@@ -85,7 +84,7 @@ pipeline {
                             # Push image to Artifact Registry
                             docker push ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}
                             
-                            echo "✅ Image pushed successfully to ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
+                            echo " Image pushed successfully to ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
                         """
                     }
                 }
@@ -95,11 +94,11 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline executed successfully!"
-            echo "📍 Image: ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
+            echo " Pipeline executed successfully!"
+            echo " Image: ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
         }
         failure {
-            echo "❌ Pipeline failed!"
+            echo " Pipeline failed!"
         }
         always {
             echo "Cleaning up..."
