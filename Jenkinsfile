@@ -1,5 +1,10 @@
 pipeline {
-    agent any
+    agent {
+        node {
+            label 'kahitoz-builder-node'
+            customWorkspace '/var/jenkins_home/workspace/AI-Interview-Platform'
+        }
+    }
 
     parameters {
         choice(
@@ -19,9 +24,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                script {
-                    load("${WORKSPACE}/backend/build-stages/checkout.groovy").call()
-                }
+                checkout scm
             }
         }
 

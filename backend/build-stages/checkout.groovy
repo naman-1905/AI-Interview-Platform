@@ -1,15 +1,5 @@
-// Checkout stage
-def call() {
-    stage('Checkout') {
-        script {
-            echo "📥 Checking out code from repository..."
-            checkout scm
-            sh """
-                echo "Current branch: \$(git rev-parse --abbrev-ref HEAD)"
-                echo "Latest commit: \$(git log -1 --pretty=%B)"
-            """
-        }
-    }
-}
+// Checkout stage - Performs SCM checkout
+// Loaded by Jenkinsfile - Executed in the context of the calling pipeline stage
+checkout scm
 
 return this
