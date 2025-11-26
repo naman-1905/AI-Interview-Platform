@@ -71,6 +71,53 @@ def _compute_queue_position(db: fb_firestore.Client, user_id: str) -> int:
     return 0
 
 
+def promote_next_user(db: fb_firestore.Client):
+    """
+    Promote the oldest queued user into in_session (non-transactional).
+    """
+    queue_docs = list(
+        db.collection("queue").order_by("created_at").limit(1).stream()
+    )
+    if not queue_docs:
+        return
+
+    oldest = queue_docs[0]
+    queued_user_id = oldest.to_dict().get("user_id") or oldest.id
+    oldest.reference.delete()
+
+    now = datetime.utcnow()
+    db.collection("in_session").document(queued_user_id).set(
+        {
+            "user_id": queued_user_id,
+            "start_time": now,
+            "expiry_time": now + timedelta(minutes=SESSION_DURATION_MINUTES),
+            "status": "in_session",
+            "created_at": now,
+        }
+    )
+    db.collection("users").document(queued_user_id).set(
+        {"status": "in_session", "updated_at": now}, merge=True
+    )
+
+
+def cleanup_expired_sessions(db: fb_firestore.Client):
+    """
+    Remove expired sessions and promote queued users (non-transactional).
+    """
+    now = datetime.utcnow()
+    expired = list(
+        db.collection("in_session")
+        .where("expiry_time", "<", now)
+        .limit(20)
+        .stream()
+    )
+    for session in expired:
+        user_id = session.to_dict().get("user_id") or session.id
+        session.reference.delete()
+        db.collection("users").document(user_id).set({"status": "idle"}, merge=True)
+        promote_next_user(db)
+
+
 @firestore.transactional
 def _join_transaction(
     txn: firestore.Transaction,
@@ -139,17 +186,21 @@ def _exit_and_promote(txn: firestore.Transaction, db: fb_firestore.Client, user_
     Remove user from in_session, promote oldest queued user if present.
     Returns promoted user_id (or None).
     """
-    session_ref = db.collection("in_session").document(user_id)
-    txn.delete(session_ref)
-
     queue_query = db.collection("queue").order_by("created_at").limit(1)
     queue_docs = list(queue_query.stream(transaction=txn))
     if not queue_docs:
-        txn.set(db.collection("users").document(user_id), {"status": "idle"}, merge=True)
+        session_ref = db.collection("in_session").document(user_id)
+        txn.delete(session_ref)
+        txn.set(
+            db.collection("users").document(user_id), {"status": "idle"}, merge=True
+        )
         return None
 
     oldest = queue_docs[0]
     queued_user_id = oldest.to_dict().get("user_id") or oldest.id
+
+    session_ref = db.collection("in_session").document(user_id)
+    txn.delete(session_ref)
 
     # Delete from queue
     txn.delete(oldest.reference)
@@ -183,21 +234,7 @@ async def _cleanup_expired_sessions():
     db = get_firestore_client()
     while True:
         try:
-            now = datetime.utcnow()
-            expired = list(
-                db.collection("in_session")
-                .where("expiry_time", "<", now)
-                .limit(20)
-                .stream()
-            )
-            for doc in expired:
-                user_id = doc.to_dict().get("user_id") or doc.id
-                try:
-                    txn = db.transaction()
-                    _exit_and_promote(txn, db, user_id)
-                    logger.info(f"Auto-exited expired session for user {user_id}")
-                except Exception as exc:
-                    logger.error(f"Failed to auto-exit user {user_id}: {exc}")
+            cleanup_expired_sessions(db)
         except Exception as exc:
             logger.error(f"Cleanup task error: {exc}")
 

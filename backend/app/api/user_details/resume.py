@@ -46,10 +46,11 @@ def extract_resume_text(filename: str, content: bytes) -> str:
     try:
         if lower.endswith(".pdf"):
             text = _extract_from_pdf(content)
-        if lower.endswith(".docx"):
+        elif lower.endswith(".docx"):
             text = _extract_from_docx(content)
-        # txt or other: try decode
-        text = content.decode("utf-8", errors="ignore")
+        else:
+            # txt or other: try decode
+            text = content.decode("utf-8", errors="ignore")
     except Exception as exc:
         logger.warning(f"Failed to extract resume text for {filename}: {exc}")
         return ""
