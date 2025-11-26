@@ -19,6 +19,7 @@ export default function InterviewPage() {
 
   const handleExit = () => {
     localStorage.clear();
+    
     navigate("/");
   };
 
