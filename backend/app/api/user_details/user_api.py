@@ -5,7 +5,7 @@ and queuing them in Firestore.
 
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import firebase_admin
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -44,25 +44,34 @@ def get_firestore_client() -> fb_firestore.Client:
 
 def _queue_status_from_global_stats(
     db: fb_firestore.Client, transaction: firestore.Transaction
-) -> Tuple[str, int, str]:
+) -> Tuple[str, str]:
     """
     Determine placement based on live counts (no global_stats dependency).
 
     Rules:
-      - If in_session has fewer than 3 docs, place user in in_session with queue_number 0.
-      - Else place user in queue with queue_number based on creation order (len(queue)+1).
-    Returns: (status, queue_number, target_collection)
+      - If in_session has fewer than 3 docs, place user in in_session.
+      - Else place user in queue.
+    Returns: (status, target_collection)
     """
     in_session_coll = db.collection("in_session")
-    queue_coll = db.collection("queue")
-
     in_session_docs = list(in_session_coll.stream(transaction=transaction))
     if len(in_session_docs) < 3:
-        return "in_session", 0, "in_session"
+        return "in_session", "in_session"
+    return "pending", "queue"
 
-    queue_docs = list(queue_coll.order_by("created_at").stream(transaction=transaction))
-    queue_number = len(queue_docs) + 1
-    return "pending", queue_number, "queue"
+
+def _compute_queue_position(db: fb_firestore.Client, user_id: str) -> int:
+    """
+    Compute queue position (1-based) based on created_at ordering.
+    """
+    queue_coll = db.collection("queue")
+    docs: List[fb_firestore.DocumentSnapshot] = list(
+        queue_coll.order_by("created_at").stream()
+    )
+    for idx, doc in enumerate(docs, start=1):
+        if doc.id == user_id:
+            return idx
+    return 0
 
 
 @router.post("/", response_model=UserCreateResponse)
@@ -101,15 +110,16 @@ async def create_user(
     transaction = db.transaction()
 
     @firestore.transactional
-    def _write_user(txn: firestore.Transaction) -> Tuple[str, int, str]:
-        status, queue_number, target_collection = _queue_status_from_global_stats(db, txn)
+    def _write_user(txn: firestore.Transaction) -> Tuple[str, str, datetime]:
+        status, target_collection = _queue_status_from_global_stats(db, txn)
 
         user_ref = db.collection("users").document(user_id)
         user_doc = build_user_document(base_payload)
+        now = datetime.utcnow()
 
         txn.set(
             user_ref,
-            {**user_doc, "created_at": fb_firestore.SERVER_TIMESTAMP},
+            {**user_doc, "created_at": now},
             merge=True,
         )
 
@@ -118,24 +128,28 @@ async def create_user(
         target_payload = {
             "user_id": user_id,
             "status": status,
-            "queue_number": queue_number,
-            "created_at": fb_firestore.SERVER_TIMESTAMP,
+            "created_at": now,
         }
 
         if status == "in_session":
-            now = datetime.utcnow()
             target_payload["start_time"] = now
             target_payload["expiry_time"] = now + timedelta(minutes=5)
 
         txn.set(target_ref, target_payload, merge=True)
 
-        return status, queue_number, target_collection
+        return status, target_collection, now
 
     try:
-        status, queue_number, target_collection = _write_user(transaction)
+        status, target_collection, created_ts = _write_user(transaction)
     except Exception as exc:
         logger.error(f"Failed to create user {user_id}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to persist user data") from exc
+
+    # Derive queue number for response (not stored) based on created_at ordering
+    if status == "pending":
+        queue_number = _compute_queue_position(db, user_id)
+    else:
+        queue_number = 0
 
     if status == "in_session":
         message = "User added to in_session"

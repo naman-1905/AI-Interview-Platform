@@ -57,9 +57,16 @@ async def get_status(user_id: str):
         data = user_doc.to_dict() or {}
 
     status = data.get("status")
-    queue_number = data.get("queue_number")
-
-    if status is None or queue_number is None:
+    if status is None:
         raise HTTPException(status_code=500, detail="Status information incomplete")
+
+    # Derive queue number dynamically (1-based) using created_at ordering
+    queue_number = 0
+    if status == "pending":
+        queue_docs = list(db.collection("queue").order_by("created_at").stream())
+        for idx, doc in enumerate(queue_docs, start=1):
+            if doc.id == user_id:
+                queue_number = idx
+                break
 
     return StatusResponse(user_id=user_id, status=status, queue_number=int(queue_number))
