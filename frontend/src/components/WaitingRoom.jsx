@@ -13,11 +13,30 @@ const STATUS_CONFIG = {
   error: { icon: AlertCircle, bgColor: "bg-red-100", textColor: "text-red-600", text: "Connection error" },
 };
 
-const Loader = () => (
-  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
-    <div className="flex flex-col items-center gap-3">
-      <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-      <div className="text-lg text-gray-600">Loading...</div>
+const SkeletonLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
+    <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md w-full">
+      <div className="animate-pulse space-y-6">
+        {/* Icon skeleton */}
+        <div className="w-20 h-20 mx-auto rounded-full bg-gray-200"></div>
+        
+        {/* Title skeleton */}
+        <div className="space-y-3">
+          <div className="h-8 bg-gray-200 rounded-lg w-2/3 mx-auto"></div>
+          <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto"></div>
+        </div>
+
+        {/* Queue card skeleton */}
+        <div className="mt-6 p-4 bg-gray-100 rounded-lg border border-gray-200">
+          <div className="h-3 bg-gray-200 rounded w-1/3 mx-auto mb-2"></div>
+          <div className="h-10 bg-gray-200 rounded-lg w-20 mx-auto"></div>
+        </div>
+
+        {/* Status indicator skeleton */}
+        <div className="mt-6 pt-6 border-t border-gray-100">
+          <div className="h-3 bg-gray-200 rounded w-1/2 mx-auto"></div>
+        </div>
+      </div>
     </div>
   </div>
 );
@@ -80,6 +99,7 @@ const StatusCard = ({ ui, status, queueNumber, error, retryCount, onRetry }) => 
 export default function WaitingArea() {
   const navigate = useNavigate();
   const userId = localStorage.getItem("user_id");
+  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("checking");
   const [queueNumber, setQueueNumber] = useState(null);
   const [error, setError] = useState("");
@@ -93,17 +113,22 @@ export default function WaitingArea() {
 
   useEffect(() => {
     isMountedRef.current = true;
+    
+    // Initial skeleton loading
+    const loadingTimer = setTimeout(() => setLoading(false), 1000);
+    
     if (!userId) {
       setStatus("error");
       setError("User ID not found. Please restart the application.");
       return;
     }
     
-    const timer = setTimeout(() => joinQueue(), 800);
+    const timer = setTimeout(() => joinQueue(), 1800);
     return () => {
       isMountedRef.current = false;
       clearInterval(pollerRef.current);
       clearTimeout(timer);
+      clearTimeout(loadingTimer);
     };
   }, [userId]);
 
@@ -211,7 +236,7 @@ export default function WaitingArea() {
     setTimeout(() => joinQueue(), 500);
   };
 
-  if (status === "checking") return <Loader />;
+  if (loading) return <SkeletonLoader />;
 
   const ui = STATUS_CONFIG[status] || STATUS_CONFIG.error;
 
