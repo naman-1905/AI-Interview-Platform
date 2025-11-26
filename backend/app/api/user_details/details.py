@@ -3,7 +3,6 @@ User detail models and helpers for Firestore payload creation.
 """
 
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
@@ -23,19 +22,14 @@ class UserDetails(BaseModel):
     resume_path: Optional[str] = Field(None, description="GCS path of uploaded resume")
     resume_bucket: Optional[str] = None
     resume_text: Optional[str] = Field(None, description="Extracted text content of resume")
-    status: str
-    queue_number: int
-    created_at: datetime
 
 
-def build_user_document(data: dict, status: str, queue_number: int) -> dict:
+def build_user_document(data: dict) -> dict:
     """
     Build Firestore document for a user.
 
     Args:
         data: dict containing user_id, names, email, phone, resume metadata
-        status: queue status (ready/pending)
-        queue_number: position in queue
     """
     return {
         "user_id": data["user_id"],
@@ -46,6 +40,4 @@ def build_user_document(data: dict, status: str, queue_number: int) -> dict:
         "resume_path": data.get("resume_path"),
         "resume_bucket": data.get("resume_bucket"),
         "resume_text": data.get("resume_text"),
-        "status": status,
-        "queue_number": queue_number,
     }
