@@ -1,222 +1,176 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from "react";
+import { Users, Clock, CheckCircle, AlertCircle } from "lucide-react";
+
+const MAX_PARTICIPANTS = 3;
+const STATUS_CONFIG = {
+  checking: {
+    title: "Checking Availability",
+    icon: Users,
+    color: "blue",
+    description: "Please wait while we check for available slots...",
+  },
+  waiting: {
+    title: "Waiting Room",
+    icon: Clock,
+    color: "yellow",
+    description: "The room is full. You are in queue.",
+  },
+  admitted: {
+    title: "Admitted!",
+    icon: CheckCircle,
+    color: "green",
+    description: "Joining interview...",
+  },
+  error: {
+    title: "Connection Error",
+    icon: AlertCircle,
+    color: "red",
+    description: "Failed to connect. Try again.",
+  },
+};
+
+function SkeletonLoader() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-2xl w-full">
+        {/* Badge skeleton */}
+        <div className="h-8 w-40 bg-gray-200 rounded-full mx-auto mb-4 animate-pulse" />
+
+        <div className="space-y-6">
+          {/* Icon skeleton */}
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-200 rounded-full animate-pulse" />
+
+          {/* Title skeleton */}
+          <div className="h-8 bg-gray-200 rounded-lg w-3/5 mx-auto animate-pulse" />
+          
+          {/* Description skeleton */}
+          <div className="h-5 bg-gray-200 rounded-lg w-4/5 mx-auto animate-pulse" />
+
+          {/* Info box skeleton */}
+          <div className="bg-gray-100 border border-gray-200 p-6 rounded-lg space-y-3">
+            <div className="flex justify-between">
+              <div className="h-5 bg-gray-200 rounded w-1/3 animate-pulse" />
+              <div className="h-5 bg-gray-200 rounded w-1/6 animate-pulse" />
+            </div>
+            <div className="flex justify-between">
+              <div className="h-5 bg-gray-200 rounded w-1/4 animate-pulse" />
+              <div className="h-5 bg-gray-200 rounded w-1/6 animate-pulse" />
+            </div>
+            <div className="h-4 bg-gray-200 rounded w-2/3 mx-auto pt-2 border-t animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function WaitingArea() {
-  const [status, setStatus] = useState('checking'); // checking, waiting, admitted, error
+  const [status, setStatus] = useState("checking");
   const [activeCount, setActiveCount] = useState(0);
   const [queuePosition, setQueuePosition] = useState(null);
-  const [message, setMessage] = useState('');
-  const MAX_PARTICIPANTS = 3;
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const pollRef = useRef(null);
 
-  // Check session count on component mount
   useEffect(() => {
-    checkAndJoin();
+    // Simulate initial loading
+    const loadTimer = setTimeout(() => {
+      setIsInitialLoad(false);
+      checkAndJoin();
+    }, 1000);
+
+    return () => {
+      clearTimeout(loadTimer);
+      clearInterval(pollRef.current);
+    };
   }, []);
+
+  const fetchData = async () => {
+    const [activeRes, queueRes] = await Promise.all([
+      fetch("/api/meeting/active-count"),
+      fetch("/api/queue/position"),
+    ]);
+
+    return {
+      count: (await activeRes.json()).count,
+      position: (await queueRes.json()).position,
+    };
+  };
 
   const checkAndJoin = async () => {
     try {
-      setStatus('checking');
-      setMessage('Checking availability...');
+      setStatus("checking");
+      const { count, position } = await fetchData();
 
-      // API call to check active participants in the meeting
-      // Replace with your actual API endpoint
-      const activePeopleResponse = await fetch('/api/meeting/active-count');
-      const { count: activeParticipants } = await activePeopleResponse.json();
-      // Placeholder: const activeParticipants = await fetchActiveMeetingCount();
-      
-      setActiveCount(activeParticipants);
+      setActiveCount(count);
 
-      if (activeParticipants < MAX_PARTICIPANTS) {
-        // Slot available - admit user immediately and redirect
-        setStatus('admitted');
-        setMessage('Slot available! Joining interview now...');
-        
-        // Redirect to interview room
-        setTimeout(() => {
-          window.location.href = '/interview';
-        }, 1500);
-      } else {
-        // Room is full - check queue position
-        // Replace with your actual API endpoint
-        const queueResponse = await fetch('/api/queue/position');
-        const { position } = await queueResponse.json();
-        // Placeholder: const position = await fetchQueuePosition();
-        
-        setQueuePosition(position);
-        setStatus('waiting');
-        setMessage('The interview room is currently full. You have been placed in the waiting room.');
-        
-        // Start polling for available slots
-        startPolling();
-      }
-    } catch (error) {
-      console.error('Error checking availability:', error);
-      setStatus('error');
-      setMessage('Failed to connect to the interview system. Please try again.');
+      if (count < MAX_PARTICIPANTS) return admit();
+
+      setQueuePosition(position);
+      setStatus("waiting");
+      startPolling();
+    } catch {
+      setStatus("error");
     }
+  };
+
+  const admit = () => {
+    setStatus("admitted");
+    setTimeout(() => (window.location.href = "/interview"), 1500);
   };
 
   const startPolling = () => {
-    // Poll every 3 seconds to check if a slot opened
-    const pollInterval = setInterval(async () => {
+    pollRef.current = setInterval(async () => {
       try {
-        // API call to check active participants
-        // Replace with your actual API endpoint
-        const activePeopleResponse = await fetch('/api/meeting/active-count');
-        const { count: activeParticipants } = await activePeopleResponse.json();
-        // Placeholder: const activeParticipants = await fetchActiveMeetingCount();
-        
-        setActiveCount(activeParticipants);
-
-        // API call to check current queue position
-        // Replace with your actual API endpoint
-        const queueResponse = await fetch('/api/queue/position');
-        const { position } = await queueResponse.json();
-        // Placeholder: const position = await fetchQueuePosition();
-        
+        const { count, position } = await fetchData();
+        setActiveCount(count);
         setQueuePosition(position);
-
-        // If slot is available, admit user
-        if (activeParticipants < MAX_PARTICIPANTS) {
-          clearInterval(pollInterval);
-          setStatus('admitted');
-          setMessage('A spot has opened! Redirecting to interview room...');
-          
-          // Redirect to interview room
-          setTimeout(() => {
-            window.location.href = '/interview';
-          }, 2000);
+        if (count < MAX_PARTICIPANTS) {
+          clearInterval(pollRef.current);
+          admit();
         }
-      } catch (error) {
-        console.error('Polling error:', error);
-        // Continue polling even if there's an error
-      }
+      } catch {}
     }, 3000);
-
-    // Cleanup on unmount
-    return () => clearInterval(pollInterval);
   };
 
-  const StatusDisplay = () => {
-    switch (status) {
-      case 'checking':
-        return (
-          <div className="text-center space-y-6">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-100 rounded-full animate-pulse">
-              <Users className="w-10 h-10 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Checking Availability</h2>
-              <p className="text-gray-600">Please wait while we check for available slots...</p>
-            </div>
-            <div className="flex items-center justify-center space-x-2">
-              <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            </div>
-          </div>
-        );
+  if (isInitialLoad) return <SkeletonLoader />;
 
-      case 'waiting':
-        return (
-          <div className="text-center space-y-6">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-yellow-100 rounded-full animate-pulse">
-              <Clock className="w-10 h-10 text-yellow-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Waiting Room</h2>
-              <p className="text-gray-600">{message}</p>
-            </div>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 max-w-md mx-auto">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-700 font-medium">Active Participants:</span>
-                  <span className="text-gray-900 font-bold">{activeCount} / {MAX_PARTICIPANTS}</span>
-                </div>
-                {queuePosition !== null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-700 font-medium">Your Position in Queue:</span>
-                    <span className="text-gray-900 font-bold">#{queuePosition}</span>
-                  </div>
-                )}
-                <div className="pt-4 border-t border-yellow-200">
-                  <p className="text-sm text-gray-600">
-                    You will be automatically redirected when a slot becomes available. Please keep this page open.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
-              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            </div>
-          </div>
-        );
-
-      case 'admitted':
-        return (
-          <div className="text-center space-y-6">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-green-100 rounded-full">
-              <CheckCircle className="w-10 h-10 text-green-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Admitted!</h2>
-              <p className="text-gray-600">{message}</p>
-            </div>
-            <div className="bg-green-50 border border-green-200 rounded-lg p-6 max-w-md mx-auto">
-              <div className="space-y-3">
-                <div className="flex items-center justify-center space-x-2 text-green-700">
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-medium">Access Granted</span>
-                </div>
-                <p className="text-sm text-gray-600">
-                  Redirecting to interview room...
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center justify-center space-x-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            </div>
-          </div>
-        );
-
-      case 'error':
-        return (
-          <div className="text-center space-y-6">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-red-100 rounded-full">
-              <AlertCircle className="w-10 h-10 text-red-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Connection Error</h2>
-              <p className="text-red-600">{message}</p>
-            </div>
-            <button
-              onClick={checkAndJoin}
-              className="bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  const { title, icon: Icon, color, description } = STATUS_CONFIG[status];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-2xl">
-        <div className="mb-6 text-center">
-          <div className="inline-block px-4 py-2 bg-indigo-100 text-indigo-700 rounded-full text-sm font-semibold mb-4">
-            Interview Meeting
+      <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-2xl w-full">
+        <span className="inline-block px-4 py-2 bg-indigo-100 text-indigo-700 rounded-full text-sm font-semibold mb-4">
+          Interview Meeting
+        </span>
+
+        <div className="space-y-6">
+          <div className={`inline-flex items-center justify-center w-20 h-20 bg-${color}-100 rounded-full animate-pulse`}>
+            <Icon className={`w-10 h-10 text-${color}-600`} />
           </div>
+
+          <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+          <p className="text-gray-600">{description}</p>
+
+          {status === "waiting" && (
+            <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-lg space-y-3">
+              <div className="flex justify-between font-medium text-gray-700">
+                <span>Active Participants:</span>
+                <span>{activeCount} / {MAX_PARTICIPANTS}</span>
+              </div>
+              <div className="flex justify-between font-medium text-gray-700">
+                <span>Your Queue:</span>
+                <span>#{queuePosition}</span>
+              </div>
+              <p className="text-sm text-gray-500 pt-2 border-t">You will be auto-redirected.</p>
+            </div>
+          )}
+
+          {status === "error" && (
+            <button className="bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700" onClick={checkAndJoin}>
+              Try Again
+            </button>
+          )}
         </div>
-        
-        <StatusDisplay />
       </div>
     </div>
   );
