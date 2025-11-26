@@ -7,8 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.logger import get_logger
 from app.api.health.health_api import router as health_router
+from app.api.interview.api import router as interview_router
 from app.api.user_details.user_api import router as user_router, start_cleanup_task
 from app.api.user_details.status import router as status_router
+from app.api.swot_details.swot_api import router as swot_router
 
 
 logger = get_logger(__name__)
@@ -40,6 +42,8 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(user_router)
 app.include_router(status_router)
+app.include_router(interview_router)
+app.include_router(swot_router)
 
 
 @app.on_event("startup")
