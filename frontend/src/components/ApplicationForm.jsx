@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function ApplicationForm() {
   const [formData, setFormData] = useState({
@@ -10,6 +10,15 @@ export default function ApplicationForm() {
   });
   const [message, setMessage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Simulate loading
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -99,9 +108,58 @@ export default function ApplicationForm() {
     }
   };
 
+  // Skeleton Loader Component
+  if (isLoading) {
+    return (
+      <div className="min-h-screen p-10 font-sans flex items-center bg-gray-50">
+        <div className="max-w-2xl mx-auto w-full border bg-white rounded-2xl p-12 shadow-2xl">
+          {/* Header Skeleton */}
+          <div className="animate-pulse">
+            <div className="h-10 bg-gray-200 rounded-lg w-3/4 mx-auto mb-3"></div>
+            <div className="h-5 bg-gray-200 rounded-lg w-1/2 mx-auto mb-8"></div>
+
+            {/* Two Column Skeleton */}
+            <div className="grid grid-cols-2 gap-5 mb-5">
+              <div>
+                <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+                <div className="h-12 bg-gray-200 rounded-lg"></div>
+              </div>
+              <div>
+                <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+                <div className="h-12 bg-gray-200 rounded-lg"></div>
+              </div>
+            </div>
+
+            {/* Email Skeleton */}
+            <div className="mb-5">
+              <div className="h-4 bg-gray-200 rounded w-32 mb-2"></div>
+              <div className="h-12 bg-gray-200 rounded-lg"></div>
+            </div>
+
+            {/* Phone Skeleton */}
+            <div className="mb-6">
+              <div className="h-4 bg-gray-200 rounded w-28 mb-2"></div>
+              <div className="h-12 bg-gray-200 rounded-lg"></div>
+            </div>
+
+            {/* Resume Upload Skeleton */}
+            <div className="mb-7">
+              <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
+              <div className="h-48 bg-gray-200 rounded-xl"></div>
+            </div>
+
+            {/* Button Skeleton */}
+            <div className="h-14 bg-gray-200 rounded-lg"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Actual Form
   return (
-    <div className="min-h-screen p-10 font-sans flex items-center">
-      <div className="max-w-2xl mx-auto border  bg-white rounded-2xl p-12 shadow-2xl">
+    <div className="min-h-screen p-10 font-sans flex items-center bg-gray-50">
+      <div className="max-w-2xl mx-auto border bg-white rounded-2xl p-12 shadow-2xl">
         <h2 className="text-4xl text-center font-bold text-gray-800 mb-2">
           AI Interview Session
         </h2>
@@ -228,7 +286,7 @@ export default function ApplicationForm() {
 
         <button
           onClick={handleSubmit}
-          className="w-full py-3.5 bg-blue-800 text-white rounded-lg font-semibold cursor-pointer hover:bg-blue-900"
+          className="w-full py-3.5 bg-blue-800 text-white rounded-lg font-semibold cursor-pointer hover:bg-blue-900 transition-colors"
         >
           Submit Application
         </button>
