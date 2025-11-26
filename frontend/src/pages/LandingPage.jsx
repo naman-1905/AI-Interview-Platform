@@ -1,9 +1,10 @@
 import React from 'react'
+import ApplicationForm from '../components/ApplicationForm'
 
 function LandingPage() {
   return (
     <div>
-      Main Screen
+      <ApplicationForm/>
     </div>
   )
 }
