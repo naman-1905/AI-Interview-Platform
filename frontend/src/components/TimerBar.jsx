@@ -38,7 +38,7 @@ export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit, onVo
     <div className="w-full bg-white border-b border-gray-200 shadow-sm py-4 px-6 flex items-center justify-center rounded-lg">
       <div className="flex items-center gap-8">
         
-        {/* Voice Toggle */}
+        {/* Voice Toggle
         <div className="flex items-center gap-4">
           <label className="relative inline-flex items-center cursor-pointer">
             <input
@@ -52,7 +52,7 @@ export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit, onVo
           </label>
 
           <Mic className={`w-6 h-6 transition ${voiceEnabled ? "text-blue-600" : "text-gray-400"}`} />
-        </div>
+        </div> */}
 
         {/* Timer */}
         <span className={`font-bold text-xl tracking-wide transition-colors ${getTimeColor()}`}>

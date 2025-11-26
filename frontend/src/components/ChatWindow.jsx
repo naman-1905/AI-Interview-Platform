@@ -234,9 +234,9 @@ export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled 
             className="border w-full p-3 rounded-xl"
           />
 
-          <button onClick={toggleMic} disabled={!recognitionRef.current} className={`p-4 rounded-xl transition ${listening ? "bg-red-500 text-white" : "bg-gray-200"}`}>
+          {/* <button onClick={toggleMic} disabled={!recognitionRef.current} className={`p-4 rounded-xl transition ${listening ? "bg-red-500 text-white" : "bg-gray-200"}`}>
             <Mic size={20} className={listening ? "animate-pulse" : ""} />
-          </button>
+          </button> */}
 
           <button onClick={sendMessage} disabled={!input.trim()} className="p-4 bg-blue-600 text-white rounded-xl">
             <Send size={20} />
