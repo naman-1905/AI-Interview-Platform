@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
 import { Mic, LogOut } from "lucide-react";
 
-export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit }) {
+export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit, onVoiceToggle }) {
   const [timeLeft, setTimeLeft] = useState(duration);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
 
-  // Timer logic
   useEffect(() => {
     if (timeLeft <= 0) {
-      if (onTimeOver) onTimeOver();
+      onTimeOver?.();
       return;
     }
 
@@ -29,38 +28,29 @@ export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit }) {
     return "text-red-600";
   };
 
-  const handleExit = async () => {
-    const confirmed = window.confirm("Are you sure you want to exit the interview early?");
-    if (!confirmed) return;
-
-    if (onEarlyExit) {
-      await onEarlyExit();
-    }
+  const toggleVoice = () => {
+    const newState = !voiceEnabled;
+    setVoiceEnabled(newState);
+    onVoiceToggle?.(newState);
   };
 
   return (
     <div className="w-full bg-white border-b border-gray-200 shadow-sm py-4 px-6 flex items-center justify-center rounded-lg">
-      {/* Right controls */}
       <div className="flex items-center gap-8">
-
+        
         {/* Voice Toggle */}
         <div className="flex items-center gap-4">
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
               checked={voiceEnabled}
-              onChange={() => setVoiceEnabled(!voiceEnabled)}
+              onChange={toggleVoice}
               className="sr-only peer"
             />
-
-            {/* Track */}
             <div className="w-14 h-8 bg-gray-300 rounded-full transition peer-checked:bg-blue-600"></div>
-
-            {/* Knob */}
             <span className="absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-sm transition-transform peer-checked:translate-x-6"></span>
           </label>
 
-          {/* Mode Icon */}
           <Mic className={`w-6 h-6 transition ${voiceEnabled ? "text-blue-600" : "text-gray-400"}`} />
         </div>
 
@@ -71,11 +61,10 @@ export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit }) {
 
         {/* Exit Button */}
         <button
-          onClick={handleExit}
+          onClick={onEarlyExit}
           className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition font-medium"
         >
-          <LogOut className="w-4 h-4" />
-          Exit
+          <LogOut className="w-4 h-4" /> Exit
         </button>
       </div>
     </div>
