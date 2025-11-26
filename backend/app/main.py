@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.logger import get_logger
 from app.api.health.health_api import router as health_router
+from app.api.user_details.user_api import router as user_router
 
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health_router)
+app.include_router(user_router)
 
 
 @app.on_event("startup")
