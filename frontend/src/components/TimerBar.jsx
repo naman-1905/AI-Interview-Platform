@@ -1,21 +1,20 @@
-import React, { useState, useEffect } from "react";
-import { Mic, Keyboard } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Mic, LogOut } from "lucide-react";
 
-export default function TimerBar({ duration = 300, onTimeOver }) {
+export default function TimerBar({ duration = 300, onTimeOver, onEarlyExit }) {
   const [timeLeft, setTimeLeft] = useState(duration);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
 
   // Timer logic
-useEffect(() => {
-  if (timeLeft <= 0) {
-    if (onTimeOver) onTimeOver();
-    return;
-  }
+  useEffect(() => {
+    if (timeLeft <= 0) {
+      if (onTimeOver) onTimeOver();
+      return;
+    }
 
-  const timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
-  return () => clearInterval(timer);
-}, [timeLeft]);
-
+    const timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft, onTimeOver]);
 
   const formatTime = (t) => {
     const m = Math.floor(t / 60);
@@ -30,22 +29,22 @@ useEffect(() => {
     return "text-red-600";
   };
 
+  const handleExit = async () => {
+    const confirmed = window.confirm("Are you sure you want to exit the interview early?");
+    if (!confirmed) return;
+
+    if (onEarlyExit) {
+      await onEarlyExit();
+    }
+  };
+
   return (
-    <div className="w-full bg-white border-b border-gray-200 shadow-sm py-4 px-6 flex items-center justify-between rounded-lg">
-
-      {/* Title */}
-      <h1 className="text-xl font-semibold text-gray-800 tracking-tight">
-        Interview Page
-      </h1>
-
+    <div className="w-full bg-white border-b border-gray-200 shadow-sm py-4 px-6 flex items-center justify-center rounded-lg">
       {/* Right controls */}
       <div className="flex items-center gap-8">
 
-        {/* Label + Toggle + Dynamic Icon */}
+        {/* Voice Toggle */}
         <div className="flex items-center gap-4">
-        
-
-          {/* Toggle */}
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
@@ -62,17 +61,22 @@ useEffect(() => {
           </label>
 
           {/* Mode Icon */}
-          {voiceEnabled ? (
-            <Mic className="w-6 h-6 text-blue-600 transition" />
-          ) : (
-            <Mic className="w-6 h-6 text-gray-400 transition" />
-          )}
+          <Mic className={`w-6 h-6 transition ${voiceEnabled ? "text-blue-600" : "text-gray-400"}`} />
         </div>
 
         {/* Timer */}
         <span className={`font-bold text-xl tracking-wide transition-colors ${getTimeColor()}`}>
           {formatTime(timeLeft)}
         </span>
+
+        {/* Exit Button */}
+        <button
+          onClick={handleExit}
+          className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition font-medium"
+        >
+          <LogOut className="w-4 h-4" />
+          Exit
+        </button>
       </div>
     </div>
   );
