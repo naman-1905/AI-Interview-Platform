@@ -33,7 +33,7 @@ pipeline {
                     echo " Setting up credentials and environment variables..."
                     withCredentials([
                         file(credentialsId: 'gcp_json', variable: 'GCP_CREDS'),
-                        file(credentialsId: 'firestore_json', variable: 'FIRESTORE_CREDS'),
+                        file(credentialsId: 'firstore_json', variable: 'FIRESTORE_CREDS'),
                         file(credentialsId: 'ai_interview_env', variable: 'ENV_FILE')
                     ]) {
                         sh """
