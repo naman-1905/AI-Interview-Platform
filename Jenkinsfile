@@ -42,6 +42,8 @@ pipeline {
                             cp \$FIRESTORE_CREDS ${WORKSPACE}/backend/creds_firestore.json
                             
                             # Copy environment file (normalize line endings to avoid \\r issues)
+                            rm -f ${WORKSPACE}/backend/.env.sh || true
+                            install -m 600 /dev/null ${WORKSPACE}/backend/.env.sh
                             tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
                             chmod +x ${WORKSPACE}/backend/.env.sh
                             
