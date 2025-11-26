@@ -1,11 +1,12 @@
 """
 User details API for creating users, uploading resumes to GCS,
-and queuing them in Firestore.
+queuing them in Firestore, and managing session lifecycle.
 """
 
+import asyncio
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Tuple, List
+from typing import Optional, List
 
 import firebase_admin
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -16,10 +17,14 @@ from pydantic import BaseModel, EmailStr
 from app.api.user_details.details import build_user_document, generate_user_id
 from app.api.user_details.resume import upload_resume_to_gcs
 from app.utils.logger import get_logger
+from app.utils.task_queue import enqueue_user_for_join
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
 
+SESSION_LIMIT = 3
+SESSION_DURATION_MINUTES = 5
+CLEANUP_INTERVAL_SECONDS = 60
 
 class UserCreateResponse(BaseModel):
     user_id: str
@@ -29,9 +34,19 @@ class UserCreateResponse(BaseModel):
     message: str
 
 
+class JoinRequest(BaseModel):
+    user_id: str
+
+
+class JoinResponse(BaseModel):
+    user_id: str
+    status: str
+    queue_number: int
+
+
 def get_firestore_client() -> fb_firestore.Client:
     """Initialize and return a Firestore client."""
-    cred_path = os.getenv("FIRESTORE_APPLICATION_CREDENTIALS")
+    cred_path = os.getenv("FIRESTORE_APPLICATION_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if not cred_path:
         raise HTTPException(status_code=500, detail="FIRESTORE_APPLICATION_CREDENTIALS is not set")
 
@@ -40,24 +55,6 @@ def get_firestore_client() -> fb_firestore.Client:
         firebase_admin.initialize_app(cred)
 
     return fb_firestore.client()
-
-
-def _queue_status_from_global_stats(
-    db: fb_firestore.Client, transaction: firestore.Transaction
-) -> Tuple[str, str]:
-    """
-    Determine placement based on live counts (no global_stats dependency).
-
-    Rules:
-      - If in_session has fewer than 3 docs, place user in in_session.
-      - Else place user in queue.
-    Returns: (status, target_collection)
-    """
-    in_session_coll = db.collection("in_session")
-    in_session_docs = list(in_session_coll.stream(transaction=transaction))
-    if len(in_session_docs) < 3:
-        return "in_session", "in_session"
-    return "pending", "queue"
 
 
 def _compute_queue_position(db: fb_firestore.Client, user_id: str) -> int:
@@ -69,9 +66,154 @@ def _compute_queue_position(db: fb_firestore.Client, user_id: str) -> int:
         queue_coll.order_by("created_at").stream()
     )
     for idx, doc in enumerate(docs, start=1):
-        if doc.id == user_id:
+        if doc.get("user_id") == user_id or doc.id == user_id:
             return idx
     return 0
+
+
+@firestore.transactional
+def _join_transaction(
+    txn: firestore.Transaction,
+    db: fb_firestore.Client,
+    user_id: str,
+) -> str:
+    """
+    Atomic join: place user in in_session if space < SESSION_LIMIT else into queue.
+    Also writes/updates the user document with status.
+    Returns status.
+    """
+    now = datetime.utcnow()
+
+    user_ref = db.collection("users").document(user_id)
+    existing_user = user_ref.get(transaction=txn)
+    if not existing_user.exists:
+        raise RuntimeError("User document not found")
+
+    existing_status = existing_user.to_dict().get("status")
+    if existing_status in ("in_session", "pending"):
+        return existing_status
+
+    # Count in_session inside transaction (limit to SESSION_LIMIT+1 for efficiency)
+    in_session_ref = db.collection("in_session")
+    in_session_docs = list(in_session_ref.limit(SESSION_LIMIT + 1).stream(transaction=txn))
+
+    if len(in_session_docs) < SESSION_LIMIT:
+        status = "in_session"
+        session_ref = in_session_ref.document(user_id)
+        txn.set(
+            session_ref,
+            {
+                "user_id": user_id,
+                "start_time": now,
+                "expiry_time": now + timedelta(minutes=SESSION_DURATION_MINUTES),
+                "status": "in_session",
+                "created_at": now,
+            },
+            merge=True,
+        )
+    else:
+        status = "pending"
+        queue_ref = db.collection("queue").document(user_id)
+        txn.set(
+            queue_ref,
+            {
+                "user_id": user_id,
+                "created_at": fb_firestore.SERVER_TIMESTAMP,
+                "status": "pending",
+            },
+            merge=True,
+        )
+
+    txn.set(
+        user_ref,
+        {"status": status, "updated_at": now},
+        merge=True,
+    )
+
+    return status
+
+
+@firestore.transactional
+def _exit_and_promote(txn: firestore.Transaction, db: fb_firestore.Client, user_id: str) -> Optional[str]:
+    """
+    Remove user from in_session, promote oldest queued user if present.
+    Returns promoted user_id (or None).
+    """
+    session_ref = db.collection("in_session").document(user_id)
+    txn.delete(session_ref)
+
+    queue_query = db.collection("queue").order_by("created_at").limit(1)
+    queue_docs = list(queue_query.stream(transaction=txn))
+    if not queue_docs:
+        txn.set(db.collection("users").document(user_id), {"status": "idle"}, merge=True)
+        return None
+
+    oldest = queue_docs[0]
+    queued_user_id = oldest.to_dict().get("user_id") or oldest.id
+
+    # Delete from queue
+    txn.delete(oldest.reference)
+
+    # Move to in_session
+    now = datetime.utcnow()
+    session_ref_new = db.collection("in_session").document(queued_user_id)
+    txn.set(
+        session_ref_new,
+        {
+            "user_id": queued_user_id,
+            "start_time": now,
+            "expiry_time": now + timedelta(minutes=SESSION_DURATION_MINUTES),
+            "status": "in_session",
+            "created_at": now,
+        },
+        merge=True,
+    )
+
+    # Update statuses
+    txn.set(db.collection("users").document(user_id), {"status": "idle"}, merge=True)
+    txn.set(db.collection("users").document(queued_user_id), {"status": "in_session"}, merge=True)
+
+    return queued_user_id
+
+
+async def _cleanup_expired_sessions():
+    """
+    Background task: remove expired sessions and promote next queued users.
+    """
+    db = get_firestore_client()
+    while True:
+        try:
+            now = datetime.utcnow()
+            expired = list(
+                db.collection("in_session")
+                .where("expiry_time", "<", now)
+                .limit(20)
+                .stream()
+            )
+            for doc in expired:
+                user_id = doc.to_dict().get("user_id") or doc.id
+                try:
+                    txn = db.transaction()
+                    _exit_and_promote(txn, db, user_id)
+                    logger.info(f"Auto-exited expired session for user {user_id}")
+                except Exception as exc:
+                    logger.error(f"Failed to auto-exit user {user_id}: {exc}")
+        except Exception as exc:
+            logger.error(f"Cleanup task error: {exc}")
+
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+
+
+_cleanup_task: Optional[asyncio.Task] = None
+
+
+async def start_cleanup_task():
+    """Start the background cleanup task once."""
+    global _cleanup_task
+    if _cleanup_task and not _cleanup_task.done():
+        return
+    loop = asyncio.get_running_loop()
+    _cleanup_task = loop.create_task(_cleanup_expired_sessions())
 
 
 @router.post("/", response_model=UserCreateResponse)
@@ -107,58 +249,61 @@ async def create_user(
         "resume_text": resume_text,
     }
 
-    transaction = db.transaction()
-
-    @firestore.transactional
-    def _write_user(txn: firestore.Transaction) -> Tuple[str, str, datetime]:
-        status, target_collection = _queue_status_from_global_stats(db, txn)
-
-        user_ref = db.collection("users").document(user_id)
+    now = datetime.utcnow()
+    try:
         user_doc = build_user_document(base_payload)
-        now = datetime.utcnow()
-
-        txn.set(
-            user_ref,
-            {**user_doc, "created_at": now},
+        db.collection("users").document(user_id).set(
+            {**user_doc, "status": "idle", "created_at": now},
             merge=True,
         )
-
-        # Place user either in in_session or queue collection
-        target_ref = db.collection(target_collection).document(user_id)
-        target_payload = {
-            "user_id": user_id,
-            "status": status,
-            "created_at": now,
-        }
-
-        if status == "in_session":
-            target_payload["start_time"] = now
-            target_payload["expiry_time"] = now + timedelta(minutes=5)
-
-        txn.set(target_ref, target_payload, merge=True)
-
-        return status, target_collection, now
-
-    try:
-        status, target_collection, created_ts = _write_user(transaction)
+        enqueue_user_for_join(user_id)
+        message = "User created and enqueued for join"
     except Exception as exc:
         logger.error(f"Failed to create user {user_id}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to persist user data") from exc
 
-    # Derive queue number for response (not stored) based on created_at ordering
-    if status == "pending":
-        queue_number = _compute_queue_position(db, user_id)
-    else:
-        queue_number = 0
-
-    if status == "in_session":
-        message = "User added to in_session"
-    else:
-        message = "User queued"
     return UserCreateResponse(
         user_id=user_id,
-        status=status,
-        queue_number=queue_number,
+        status="idle",
+        queue_number=0,
         resume_path=resume_path,
         message=message,
     )
+
+
+@router.post("/{user_id}/exit", response_model=dict)
+async def exit_session(user_id: str):
+    """
+    Mark user as exited from session and promote the next queued user (if any).
+    """
+    db = get_firestore_client()
+    try:
+        transaction = db.transaction()
+        promoted = _exit_and_promote(transaction, db, user_id)
+    except Exception as exc:
+        logger.error(f"Failed to exit/promote for user {user_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to exit session") from exc
+
+    return {"exited": user_id, "promoted": promoted}
+
+
+@router.post("/join", response_model=JoinResponse)
+async def join_user(payload: JoinRequest):
+    """
+    Cloud Tasks / API entrypoint for actually joining the queue/session.
+    """
+    db = get_firestore_client()
+    try:
+        transaction = db.transaction()
+        status = _join_transaction(transaction, db, payload.user_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Failed to join user {payload.user_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to join queue/session") from exc
+
+    queue_number = 0
+    if status == "pending":
+        queue_number = _compute_queue_position(db, payload.user_id)
+
+    return JoinResponse(user_id=payload.user_id, status=status, queue_number=queue_number)

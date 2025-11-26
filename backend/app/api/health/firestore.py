@@ -17,7 +17,7 @@ def test_firestore_connection():
     logger.info("Testing Firestore connection...")
     
     # Get Firestore credentials path
-    creds_path = os.getenv('FIRESTORE_APPLICATION_CREDENTIALS')
+    creds_path = os.getenv('FIRESTORE_APPLICATION_CREDENTIALS') or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     logger.info(f"Using Firestore credentials: {creds_path}")
     
     # Check if credentials file exists
@@ -52,5 +52,4 @@ def test_firestore_connection():
     except Exception as e:
         logger.error(f"Connection Error: {str(e)}")
         return False
-
 

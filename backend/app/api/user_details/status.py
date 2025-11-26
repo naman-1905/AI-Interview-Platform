@@ -23,7 +23,7 @@ class StatusResponse(BaseModel):
 
 def get_firestore_client() -> fb_firestore.Client:
     """Initialize and return a Firestore client."""
-    cred_path = os.getenv("FIRESTORE_APPLICATION_CREDENTIALS")
+    cred_path = os.getenv("FIRESTORE_APPLICATION_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if not cred_path:
         raise HTTPException(status_code=500, detail="FIRESTORE_APPLICATION_CREDENTIALS is not set")
 
@@ -65,7 +65,7 @@ async def get_status(user_id: str):
     if status == "pending":
         queue_docs = list(db.collection("queue").order_by("created_at").stream())
         for idx, doc in enumerate(queue_docs, start=1):
-            if doc.id == user_id:
+            if doc.get("user_id") == user_id or doc.id == user_id:
                 queue_number = idx
                 break
 

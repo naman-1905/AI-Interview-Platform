@@ -33,23 +33,20 @@ pipeline {
                     echo " Setting up credentials and environment variables..."
                     withCredentials([
                         file(credentialsId: 'gcp_json', variable: 'GCP_CREDS'),
-                        file(credentialsId: 'firstore_json', variable: 'FIRESTORE_CREDS'),
                         file(credentialsId: 'ai_interview_env', variable: 'ENV_FILE')
                     ]) {
                         sh """
                             # Copy credentials to backend directory
                             cp \$GCP_CREDS ${WORKSPACE}/backend/creds.json
-                            cp \$FIRESTORE_CREDS ${WORKSPACE}/backend/creds_firestore.json
-                            
+
                             # Copy environment file (normalize line endings to avoid \\r issues)
                             rm -f ${WORKSPACE}/backend/.env.sh || true
                             install -m 600 /dev/null ${WORKSPACE}/backend/.env.sh
                             tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
                             chmod +x ${WORKSPACE}/backend/.env.sh
-                            
+
                             echo "  Credentials and environment loaded:"
-                            echo "   - creds.json (GCP)"
-                            echo "   - creds_firestore.json (Firestore)"
+                            echo "   - creds.json (GCP/Firestore)"
                             echo "   - .env.sh (Environment)"
                         """
                     }
@@ -104,12 +101,11 @@ pipeline {
         }
         always {
             echo "Cleaning up..."
-            sh '''
-                # Clean up sensitive files
-                rm -f ${WORKSPACE}/backend/creds.json
-                rm -f ${WORKSPACE}/backend/creds_firestore.json
-                docker logout || true
-            '''
+                sh '''
+                    # Clean up sensitive files
+                    rm -f ${WORKSPACE}/backend/creds.json
+                    docker logout || true
+                '''
         }
     }
 }

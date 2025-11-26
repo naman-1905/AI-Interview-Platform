@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.logger import get_logger
 from app.api.health.health_api import router as health_router
-from app.api.user_details.user_api import router as user_router
+from app.api.user_details.user_api import router as user_router, start_cleanup_task
 from app.api.user_details.status import router as status_router
 
 
@@ -25,6 +25,7 @@ origins = [
     "http://localhost",
     "http://localhost:3000",
     "http://localhost:8000",
+    "http://localhost:5173"
 ]
 
 app.add_middleware(
@@ -47,6 +48,7 @@ async def startup_event():
     logger.info("Application starting up...")
     logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
     logger.info(f"Log Level: {os.getenv('LOG_LEVEL', 'INFO')}")
+    await start_cleanup_task()
 
 
 @app.on_event("shutdown")
