@@ -41,8 +41,8 @@ pipeline {
                             cp \$GCP_CREDS ${WORKSPACE}/backend/creds.json
                             cp \$FIRESTORE_CREDS ${WORKSPACE}/backend/creds_firestore.json
                             
-                            # Copy environment file
-                            cp \$ENV_FILE ${WORKSPACE}/backend/.env.sh
+                            # Copy environment file (normalize line endings to avoid \\r issues)
+                            tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
                             chmod +x ${WORKSPACE}/backend/.env.sh
                             
                             echo "  Credentials and environment loaded:"
