@@ -34,6 +34,9 @@ This repository contains the **backend** and **frontend** pieces for the AI Inte
    - `/swot/{user_id}` returns the generated SWOT once available.
    - `/health` exposes Firestore + Storage connectivity.
 
+   ![Architecture Diagram](./Mermaid_Diagram_AI_Interview.png)
+
+
 ## Getting Started
 
 1. Populate `/backend/.env.sh` with the GCP credentials.
