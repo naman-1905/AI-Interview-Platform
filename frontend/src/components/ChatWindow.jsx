@@ -4,7 +4,7 @@ import { useLocation } from "react-router-dom";
 
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT;
 
-export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled }) {
+export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled, onSessionOver }) {
   const location = useLocation();
   const [messages, setMessages] = useState(() => JSON.parse(localStorage.getItem("interviewChat") || "[]"));
   const [input, setInput] = useState("");
@@ -178,6 +178,19 @@ export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled 
       if (data.next_question) {
         setMessages(prev => [...prev, { sender: "ai", text: data.next_question }]);
         speak(data.next_question);
+      }
+
+      // Check if session is over
+      if (
+        data.status === "session over" || 
+        data.bot_response?.toLowerCase().includes("session has concluded") ||
+        data.bot_response?.toLowerCase().includes("status: session over")
+      ) {
+        // Trigger the session over callback to show TimeUpModal
+        if (onSessionOver) {
+          onSessionOver();
+        }
+        return;
       }
 
       if (data.status === "completed" || timeExpired) {
