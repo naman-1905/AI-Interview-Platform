@@ -17,13 +17,19 @@ export default function InterviewPage() {
     setShowModal(true);
   };
 
+  const handleSessionOver = () => {
+    // Called when API returns "session over" status
+    setShowModal(true);
+  };
+
   const handleExit = () => {
     localStorage.clear();
-    
     navigate("/");
   };
 
-  const viewResults = () => {
+  const viewResults = async () => {
+    // Clear the interview chat when viewing results
+    localStorage.removeItem("interviewChat");
     navigate("/result");
   };
 
@@ -35,6 +41,7 @@ export default function InterviewPage() {
           timeExpired={timeExpired}
           voiceEnabled={voiceEnabled}
           onFinalResponse={() => setShowModal(true)}
+          onSessionOver={handleSessionOver}
         />
       </div>
 
