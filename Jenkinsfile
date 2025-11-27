@@ -28,76 +28,111 @@ pipeline {
             }
         }
 
-        stage('Setup Credentials & Environment') {
+        stage('Setup Backend Environment') {
+            when {
+                expression { params.TARGET == 'backend' }
+            }
             steps {
                 script {
-                    echo " Setting up credentials and environment variables..."
+                    echo " Setting up backend credentials and environment variables..."
                     withCredentials([
                         file(credentialsId: 'gcp_json', variable: 'GCP_CREDS'),
-                        file(credentialsId: 'ai_interview_env', variable: 'ENV_FILE'),
-                        file(credentialsId: 'ai_frontend_env', variable: 'FRONTEND_ENV')
+                        file(credentialsId: 'ai_interview_env', variable: 'ENV_FILE')
                     ]) {
-                        if (params.TARGET == 'backend') {
-                            sh """
-                                cp \$GCP_CREDS ${WORKSPACE}/backend/creds.json
-                                rm -f ${WORKSPACE}/backend/.env.sh || true
-                                install -m 600 /dev/null ${WORKSPACE}/backend/.env.sh
-                                tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
-                                chmod +x ${WORKSPACE}/backend/.env.sh
-                            """
-                            echo "  Backend credentials and environment ready"
-                        } else {
-                            sh """
-                                rm -f ${WORKSPACE}/frontend/.env || true
-                                install -m 600 /dev/null ${WORKSPACE}/frontend/.env
-                                tr -d '\\r' < "\$FRONTEND_ENV" > ${WORKSPACE}/frontend/.env
-                            """
-                            echo "  Frontend environment ready"
-                        }
+                        sh """
+                            cp \$GCP_CREDS ${WORKSPACE}/backend/creds.json
+                            rm -f ${WORKSPACE}/backend/.env.sh || true
+                            install -m 600 /dev/null ${WORKSPACE}/backend/.env.sh
+                            tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
+                            chmod +x ${WORKSPACE}/backend/.env.sh
+                        """
                     }
+                    echo "  Backend credentials and environment ready"
                 }
             }
         }
 
-        stage('Build Image') {
+        stage('Setup Frontend Environment') {
+            when {
+                expression { params.TARGET == 'frontend' }
+            }
             steps {
                 script {
-                    if (params.TARGET == 'backend') {
-                        echo "🔨 Building Docker image: ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}"
+                    echo " Setting up frontend environment variables..."
+                    withCredentials([file(credentialsId: 'ai_frontend_env', variable: 'FRONTEND_ENV')]) {
                         sh """
-                            cd backend
-                            docker build -t ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG} .
-                        """
-                    } else {
-                        echo "🔨 Building Docker image: ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}"
-                        sh """
-                            cd frontend
-                            docker build -t ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG} .
+                            rm -f ${WORKSPACE}/frontend/.env || true
+                            install -m 600 /dev/null ${WORKSPACE}/frontend/.env
+                            tr -d '\\r' < "\$FRONTEND_ENV" > ${WORKSPACE}/frontend/.env
                         """
                     }
+                    echo "  Frontend environment ready"
                 }
             }
         }
 
-        stage('Push to Artifact Registry') {
+        stage('Build Backend Image') {
+            when {
+                expression { params.TARGET == 'backend' }
+            }
             steps {
                 script {
-                    echo "📤 Pushing image to Google Artifact Registry..."
+                    echo "🔨 Building backend Docker image: ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}"
+                    sh """
+                        cd backend
+                        docker build -t ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG} .
+                    """
+                }
+            }
+        }
+
+        stage('Build Frontend Image') {
+            when {
+                expression { params.TARGET == 'frontend' }
+            }
+            steps {
+                script {
+                    echo "🔨 Building frontend Docker image: ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}"
+                    sh """
+                        cd frontend
+                        docker build -t ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG} .
+                    """
+                }
+            }
+        }
+
+        stage('Push Backend Image') {
+            when {
+                expression { params.TARGET == 'backend' }
+            }
+            steps {
+                script {
+                    echo "📤 Pushing backend image to Google Artifact Registry..."
                     withCredentials([file(credentialsId: 'gcp_json', variable: 'GCP_CREDS')]) {
                         sh """
-                            # Authenticate with GCP
                             gcloud auth activate-service-account --key-file=\$GCP_CREDS
                             gcloud config set project ${GCP_PROJECT_ID}
-                            
-                            # Configure Docker authentication for Artifact Registry
                             gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev
-                            
-                            # Push image to Artifact Registry
-                            if [ "${TARGET}" = "backend" ]; then
-                                docker push ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}
-                            else
-                                docker push ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}
-                            fi
+                            docker push ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Push Frontend Image') {
+            when {
+                expression { params.TARGET == 'frontend' }
+            }
+            steps {
+                script {
+                    echo "📤 Pushing frontend image to Google Artifact Registry..."
+                    withCredentials([file(credentialsId: 'gcp_json', variable: 'GCP_CREDS')]) {
+                        sh """
+                            gcloud auth activate-service-account --key-file=\$GCP_CREDS
+                            gcloud config set project ${GCP_PROJECT_ID}
+                            gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev
+                            docker push ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}
                         """
                     }
                 }

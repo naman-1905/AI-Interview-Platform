@@ -1,8 +1,8 @@
-// Push Docker image to registry
+// Push the frontend Docker image to the configured registry
 def call(imageName, registryPush, dockerCredsId) {
-    stage('Push to Docker Registry') {
+    stage('Push Frontend Docker Image') {
         script {
-            echo " Pushing image to registry: ${registryPush}/${imageName}"
+            echo "📤 Pushing frontend image to registry: ${registryPush}/${imageName}"
             withCredentials([usernamePassword(
                 credentialsId: dockerCredsId,
                 usernameVariable: 'DOCKER_USER',
@@ -12,7 +12,7 @@ def call(imageName, registryPush, dockerCredsId) {
                     echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin ${registryPush}
                     docker push ${registryPush}/${imageName}
                     docker logout ${registryPush}
-                    echo " Image pushed successfully"
+                    echo " Frontend image pushed successfully"
                 """
             }
         }

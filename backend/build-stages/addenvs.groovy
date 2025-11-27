@@ -2,7 +2,7 @@
 def call(envCredentialsId = 'ai_interview_env') {
     stage('Setup Environment') {
         script {
-            echo "📝 Setting up environment variables from Jenkins credentials..."
+            echo " Setting up environment variables from Jenkins credentials..."
             
             withCredentials([file(credentialsId: envCredentialsId, variable: 'ENV_FILE')]) {
                 sh """
