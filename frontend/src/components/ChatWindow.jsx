@@ -1,122 +1,36 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, Send, Loader2, Sparkles } from "lucide-react";
+import { Send, Loader2, Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT;
 
-export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled, onSessionOver }) {
+export default function ChatWindow({ timeExpired, onFinalResponse, onSessionOver }) {
   const location = useLocation();
   const [messages, setMessages] = useState(() => JSON.parse(localStorage.getItem("interviewChat") || "[]"));
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [listening, setListening] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
 
   const chatRef = useRef(null);
-  const recognitionRef = useRef(null);
-  const finalTranscriptRef = useRef("");
 
-  // Scroll on new messages
+  // Auto-scroll on new messages
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
-  // Persist chat
+  // Persist chat locally
   useEffect(() => {
     localStorage.setItem("interviewChat", JSON.stringify(messages));
   }, [messages]);
 
-  // Clear when leaving interview
+  // Cleanup chat when leaving interview
   useEffect(() => {
     return () => {
       if (location.pathname !== "/interview") localStorage.removeItem("interviewChat");
     };
   }, [location.pathname]);
 
-  // TEXT TO SPEECH - Enhanced with real-time narration
-  const speak = (text) => {
-    if (!voiceEnabled) return;
-    if (!window.speechSynthesis) return;
-    
-    window.speechSynthesis.cancel();
-    const msg = new SpeechSynthesisUtterance(text);
-    msg.lang = "en-US";
-    msg.rate = 1.07;
-    msg.onstart = () => console.log("Speech started");
-    msg.onend = () => console.log("Speech ended");
-    msg.onerror = (e) => console.error("Speech error:", e);
-    window.speechSynthesis.speak(msg);
-  };
-
-  // SPEECH TO TEXT - Initialize
-  useEffect(() => {
-    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn("Speech Recognition not supported");
-      return;
-    }
-
-    const rec = new SpeechRecognition();
-    rec.lang = "en-US";
-    rec.continuous = true;
-    rec.interimResults = true;
-
-    rec.onstart = () => setListening(true);
-    
-    rec.onend = () => {
-      // Auto-restart if still supposed to be listening
-      if (recognitionRef.current && listening) {
-        try {
-          rec.start();
-        } catch (e) {
-          console.error("Error restarting recognition:", e);
-        }
-      }
-    };
-
-    rec.onerror = (e) => {
-      console.error("Speech recognition error:", e.error);
-      if (e.error !== "no-speech") {
-        setListening(false);
-      }
-    };
-
-    rec.onresult = (event) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscriptRef.current += transcript + " ";
-        } else {
-          interim += transcript;
-        }
-      }
-      setInput(finalTranscriptRef.current + interim);
-    };
-
-    recognitionRef.current = rec;
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-    };
-  }, []);
-
-  const toggleMic = () => {
-    if (!recognitionRef.current) return;
-    
-    if (listening) {
-      recognitionRef.current.stop();
-      setListening(false);
-      finalTranscriptRef.current = "";
-    } else {
-      finalTranscriptRef.current = input;
-      recognitionRef.current.start();
-    }
-  };
-
-  // START INTERVIEW
+  // Start interview once per session
   useEffect(() => {
     const startInterview = async () => {
       const userId = localStorage.getItem("user_id");
@@ -134,21 +48,20 @@ export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled,
 
         if (data.bot_response) {
           setMessages(prev => [...prev, { sender: "ai", text: data.bot_response }]);
-          speak(data.bot_response);
         }
+
         if (data.next_question) {
           setMessages(prev => [...prev, { sender: "ai", text: data.next_question }]);
-          speak(data.next_question);
         }
       } catch {
-        setMessages(prev => [...prev, { sender: "ai", text: "⚠ Interview failed to start." }]);
+        setMessages(prev => [...prev, { sender: "ai", text: "⚠️ Interview failed to start." }]);
       }
     };
 
     startInterview();
-  }, [voiceEnabled, hasStarted]);
+  }, [hasStarted]);
 
-  // SEND RESPONSE
+  // Send text message
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
@@ -158,7 +71,6 @@ export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled,
     const message = input.trim();
     setMessages(prev => [...prev, { sender: "user", text: message }]);
     setInput("");
-    finalTranscriptRef.current = "";
     setLoading(true);
 
     try {
@@ -172,24 +84,19 @@ export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled,
 
       if (data.bot_response) {
         setMessages(prev => [...prev, { sender: "ai", text: data.bot_response }]);
-        speak(data.bot_response);
       }
 
       if (data.next_question) {
         setMessages(prev => [...prev, { sender: "ai", text: data.next_question }]);
-        speak(data.next_question);
       }
 
-      // Check if session is over
+      // Detect end of session
       if (
         data.status === "session over" || 
         data.bot_response?.toLowerCase().includes("session has concluded") ||
         data.bot_response?.toLowerCase().includes("status: session over")
       ) {
-        // Trigger the session over callback to show TimeUpModal
-        if (onSessionOver) {
-          onSessionOver();
-        }
+        onSessionOver?.();
         return;
       }
 
@@ -242,14 +149,10 @@ export default function ChatWindow({ timeExpired, onFinalResponse, voiceEnabled,
             rows={1}
             disabled={timeExpired}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Speak or type your response..."
+            placeholder="Type your response..."
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendMessage())}
             className="border w-full p-3 rounded-xl"
           />
-
-          {/* <button onClick={toggleMic} disabled={!recognitionRef.current} className={`p-4 rounded-xl transition ${listening ? "bg-red-500 text-white" : "bg-gray-200"}`}>
-            <Mic size={20} className={listening ? "animate-pulse" : ""} />
-          </button> */}
 
           <button onClick={sendMessage} disabled={!input.trim()} className="p-4 bg-blue-600 text-white rounded-xl">
             <Send size={20} />
