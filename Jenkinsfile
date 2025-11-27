@@ -7,14 +7,15 @@ pipeline {
 
     parameters {
         choice(
-            name: 'ACTION',
-            choices: ['build-and-push'],
-            description: 'Build and push image to Google Artifact Registry'
+            name: 'TARGET',
+            choices: ['backend', 'frontend'],
+            description: 'Choose which image to build & push'
         )
     }
 
     environment {
-        IMAGE_TAG = 'aibackend:latest'
+        BACKEND_IMAGE_TAG = 'aibackend:latest'
+        FRONTEND_IMAGE_TAG = 'aifrontend:latest'
         ARTIFACT_REGISTRY_REPO = 'asia-south2-docker.pkg.dev/upheld-object-479411-j3/smartinterview'
         GCP_PROJECT_ID = 'upheld-object-479411-j3'
         GCP_REGION = 'asia-south2'
@@ -33,22 +34,26 @@ pipeline {
                     echo " Setting up credentials and environment variables..."
                     withCredentials([
                         file(credentialsId: 'gcp_json', variable: 'GCP_CREDS'),
-                        file(credentialsId: 'ai_interview_env', variable: 'ENV_FILE')
+                        file(credentialsId: 'ai_interview_env', variable: 'ENV_FILE'),
+                        file(credentialsId: 'ai_frontend_env', variable: 'FRONTEND_ENV')
                     ]) {
-                        sh """
-                            # Copy credentials to backend directory
-                            cp \$GCP_CREDS ${WORKSPACE}/backend/creds.json
-
-                            # Copy environment file (normalize line endings to avoid \\r issues)
-                            rm -f ${WORKSPACE}/backend/.env.sh || true
-                            install -m 600 /dev/null ${WORKSPACE}/backend/.env.sh
-                            tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
-                            chmod +x ${WORKSPACE}/backend/.env.sh
-
-                            echo "  Credentials and environment loaded:"
-                            echo "   - creds.json (GCP/Firestore)"
-                            echo "   - .env.sh (Environment)"
-                        """
+                        if (params.TARGET == 'backend') {
+                            sh """
+                                cp \$GCP_CREDS ${WORKSPACE}/backend/creds.json
+                                rm -f ${WORKSPACE}/backend/.env.sh || true
+                                install -m 600 /dev/null ${WORKSPACE}/backend/.env.sh
+                                tr -d '\\r' < "\$ENV_FILE" > ${WORKSPACE}/backend/.env.sh
+                                chmod +x ${WORKSPACE}/backend/.env.sh
+                            """
+                            echo "  Backend credentials and environment ready"
+                        } else {
+                            sh """
+                                rm -f ${WORKSPACE}/frontend/.env || true
+                                install -m 600 /dev/null ${WORKSPACE}/frontend/.env
+                                tr -d '\\r' < "\$FRONTEND_ENV" > ${WORKSPACE}/frontend/.env
+                            """
+                            echo "  Frontend environment ready"
+                        }
                     }
                 }
             }
@@ -57,12 +62,19 @@ pipeline {
         stage('Build Image') {
             steps {
                 script {
-                    echo "🔨 Building Docker image: ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
-                    sh """
-                        cd backend
-                        docker build -t ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG} .
-                        echo " Docker image built successfully"
-                    """
+                    if (params.TARGET == 'backend') {
+                        echo "🔨 Building Docker image: ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}"
+                        sh """
+                            cd backend
+                            docker build -t ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG} .
+                        """
+                    } else {
+                        echo "🔨 Building Docker image: ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}"
+                        sh """
+                            cd frontend
+                            docker build -t ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG} .
+                        """
+                    }
                 }
             }
         }
@@ -81,9 +93,11 @@ pipeline {
                             gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev
                             
                             # Push image to Artifact Registry
-                            docker push ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}
-                            
-                            echo " Image pushed successfully to ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
+                            if [ "${TARGET}" = "backend" ]; then
+                                docker push ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}
+                            else
+                                docker push ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}
+                            fi
                         """
                     }
                 }
@@ -93,8 +107,14 @@ pipeline {
 
     post {
         success {
-            echo " Pipeline executed successfully!"
-            echo " Image: ${ARTIFACT_REGISTRY_REPO}/${IMAGE_TAG}"
+            script {
+                echo " Pipeline executed successfully!"
+                if (params.TARGET == 'backend') {
+                    echo " Image: ${ARTIFACT_REGISTRY_REPO}/${BACKEND_IMAGE_TAG}"
+                } else {
+                    echo " Image: ${ARTIFACT_REGISTRY_REPO}/${FRONTEND_IMAGE_TAG}"
+                }
+            }
         }
         failure {
             echo " Pipeline failed!"
@@ -104,6 +124,8 @@ pipeline {
                 sh '''
                     # Clean up sensitive files
                     rm -f ${WORKSPACE}/backend/creds.json
+                    rm -f ${WORKSPACE}/backend/.env.sh
+                    rm -f ${WORKSPACE}/frontend/.env
                     docker logout || true
                 '''
         }

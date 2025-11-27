@@ -15,7 +15,9 @@ from google.cloud import firestore
 from pydantic import BaseModel, EmailStr
 
 from app.api.user_details.details import build_user_document, generate_user_id
+from app.api.interview.prompt import build_swot_prompt, history_to_text, parse_swot_response
 from app.api.user_details.resume import upload_resume_to_gcs
+from app.utils.gemini_wrapper import get_gemini_response
 from app.utils.logger import get_logger
 from app.utils.task_queue import enqueue_user_for_join
 
@@ -71,6 +73,23 @@ def _compute_queue_position(db: fb_firestore.Client, user_id: str) -> int:
     return 0
 
 
+def ensure_swot_for_user(db: fb_firestore.Client, user_id: str):
+    """Generate and store SWOT analysis if missing for the user."""
+    user_ref = db.collection("users").document(user_id)
+    snapshot = user_ref.get()
+    if not snapshot.exists:
+        return
+
+    doc = snapshot.to_dict() or {}
+    if doc.get("swot_analysis"):
+        return
+
+    history = doc.get("interview_history", []) or []
+    prompt = build_swot_prompt(doc.get("resume_text", ""), history_to_text(history))
+    swot_result = parse_swot_response(get_gemini_response(prompt))
+    user_ref.set({"swot_analysis": swot_result}, merge=True)
+
+
 def promote_next_user(db: fb_firestore.Client):
     """
     Promote the oldest queued user into in_session (non-transactional).
@@ -113,6 +132,7 @@ def cleanup_expired_sessions(db: fb_firestore.Client):
     )
     for session in expired:
         user_id = session.to_dict().get("user_id") or session.id
+        ensure_swot_for_user(db, user_id)
         session.reference.delete()
         db.collection("users").document(user_id).set({"status": "idle"}, merge=True)
         promote_next_user(db)
