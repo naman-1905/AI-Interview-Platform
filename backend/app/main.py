@@ -25,6 +25,7 @@ app = FastAPI(
 # CORS configuration
 origins = [
     "http://localhost:5173",
+    "http://localhost:3000",
     "https://aifrontend-1071940624586.asia-south2.run.app"
 ]
 
