@@ -14,11 +14,13 @@ WORKDIR /app
 ENV HOST=0.0.0.0
 ENV PORT=5173
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
+# Install a lightweight static file server to host the built assets
+RUN npm install -g serve
 
-RUN npm ci --production
+# Copy only the compiled frontend output
+COPY --from=builder /app/dist ./dist
 
 EXPOSE 5173
 
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]
+# Serve the production build
+CMD ["serve", "-s", "dist", "-l", "5173", "--single"]
